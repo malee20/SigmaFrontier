@@ -1,5 +1,5 @@
 "use client";
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 
 // ─── Styles ───
 const mono = { fontFamily: "'JetBrains Mono', monospace" };
@@ -56,6 +56,7 @@ const Logo = () => (
   </div>
 );
 
+// ─── Landing ───
 const Landing = ({ onStart }) => (
   <div style={{ maxWidth: 720, margin: "0 auto", padding: "60px 24px", textAlign: "center" }}>
     <div style={{ marginBottom: 48 }}><Logo /></div>
@@ -72,14 +73,9 @@ const Landing = ({ onStart }) => (
   </div>
 );
 
+// ─── Portfolio Input ───
 const PortfolioInput = ({ onAnalyse, onBack, loading }) => {
-  const [rows, setRows] = useState([
-  { ticker: "", amount: "" },
-  { ticker: "", amount: "" },
-  { ticker: "", amount: "" },
-  { ticker: "", amount: "" },
-  { ticker: "", amount: "" },
-  ]);
+  const [rows, setRows] = useState([{ ticker: "", amount: "" }, { ticker: "", amount: "" }]);
   const [error, setError] = useState("");
   const updateRow = (i, field, value) => { const next = [...rows]; next[i] = { ...next[i], [field]: field === "ticker" ? value.toUpperCase() : value }; setRows(next); };
   const addRow = () => setRows([...rows, { ticker: "", amount: "" }]);
@@ -121,6 +117,7 @@ const PortfolioInput = ({ onAnalyse, onBack, loading }) => {
   );
 };
 
+// ─── Heatmap ───
 const Heatmap = ({ matrix, tickers }) => {
   const [hover, setHover] = useState(null);
   const n = tickers.length;
@@ -153,15 +150,243 @@ const Heatmap = ({ matrix, tickers }) => {
   );
 };
 
+// ─── Sector Alerts ───
+const SectorAlerts = ({ sectorData, sectorLoading }) => {
+  const [expanded, setExpanded] = useState({});
+
+  const toggleExpanded = (ticker) => {
+    setExpanded((prev) => ({ ...prev, [ticker]: !prev[ticker] }));
+  };
+
+  // Loading state
+  if (sectorLoading) {
+    return (
+      <div style={{ ...card, marginBottom: 24 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, marginTop: 0 }}>Sector Comparison</h3>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 0" }}>
+          <div style={{
+            width: 20, height: 20, border: "2px solid rgba(99, 102, 241, 0.3)",
+            borderTop: "2px solid #6366f1", borderRadius: "50%",
+            animation: "spin 1s linear infinite",
+          }} />
+          <span style={{ fontSize: 14, color: "#94a3b8" }}>
+            Loading sector benchmarks — comparing your holdings against top stocks in each sector...
+          </span>
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  // Error or no data
+  if (!sectorData || sectorData.error) {
+    return (
+      <div style={{ ...card, marginBottom: 24 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, marginTop: 0 }}>Sector Comparison</h3>
+        <p style={{ fontSize: 14, color: "#64748b" }}>Sector comparison data could not be loaded. This does not affect your portfolio analysis above.</p>
+      </div>
+    );
+  }
+
+  const { alerts, passing, skipped } = sectorData;
+
+  return (
+    <div style={{ ...card, marginBottom: 24 }}>
+      <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, marginTop: 0 }}>Sector Comparison</h3>
+      <p style={{ fontSize: 13, color: "#64748b", marginTop: 0, marginBottom: 20, lineHeight: 1.6 }}>
+        Each holding is compared against the top 10 stocks by market cap in its sector. Holdings are flagged if their Sharpe Ratio falls below the sector average.
+      </p>
+
+      {/* All clear message */}
+      {alerts.length === 0 && (
+        <div style={{
+          padding: "16px 20px", borderRadius: 12,
+          background: "rgba(34, 197, 94, 0.08)", border: "1px solid rgba(34, 197, 94, 0.15)",
+          display: "flex", alignItems: "center", gap: 10, marginBottom: 16,
+        }}>
+          <span style={{ fontSize: 20 }}>✓</span>
+          <span style={{ fontSize: 14, color: "#22c55e", fontWeight: 500 }}>
+            All your holdings perform at or above their sector average.
+          </span>
+        </div>
+      )}
+
+      {/* Passing holdings summary */}
+      {passing && passing.length > 0 && (
+        <div style={{ marginBottom: alerts.length > 0 ? 20 : 0 }}>
+          {passing.map((p, i) => (
+            <div key={i} style={{
+              display: "flex", alignItems: "center", justifyContent: "space-between",
+              padding: "10px 16px", borderRadius: 10, marginBottom: 6,
+              background: "rgba(34, 197, 94, 0.04)", border: "1px solid rgba(34, 197, 94, 0.08)",
+            }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <span style={{ color: "#22c55e", fontSize: 14 }}>✓</span>
+                <span style={{ fontWeight: 600, fontSize: 14, ...mono }}>{p.ticker}</span>
+                <span style={{ fontSize: 13, color: "#64748b" }}>{p.sector}</span>
+              </div>
+              <div style={{ fontSize: 13, color: "#94a3b8", ...mono }}>
+                <span style={{ color: "#22c55e", fontWeight: 600 }}>{p.holdingSharpe.toFixed(2)}</span>
+                <span style={{ color: "#64748b" }}> vs sector avg </span>
+                <span>{p.sectorAvgSharpe.toFixed(2)}</span>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Alert cards */}
+      {alerts.map((alert, idx) => (
+        <div key={idx} style={{
+          marginBottom: 16, borderRadius: 12, overflow: "hidden",
+          background: "rgba(239, 68, 68, 0.04)", border: "1px solid rgba(239, 68, 68, 0.12)",
+        }}>
+          {/* Alert header */}
+          <div style={{ padding: "16px 20px" }}>
+            <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 12 }}>
+              <span style={{ fontSize: 16 }}>⚠️</span>
+              <span style={{ fontWeight: 700, fontSize: 15, ...mono }}>{alert.ticker}</span>
+              <span style={{ fontSize: 13, color: "#94a3b8" }}>— Below sector average</span>
+            </div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8, marginBottom: 14 }}>
+              <span style={{ fontSize: 12, color: "#64748b", padding: "4px 10px", borderRadius: 6, background: "rgba(30, 41, 59, 0.5)" }}>{alert.name}</span>
+              <span style={{ fontSize: 12, color: "#64748b", padding: "4px 10px", borderRadius: 6, background: "rgba(30, 41, 59, 0.5)" }}>{alert.sector}</span>
+            </div>
+
+            {/* Stats row */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 16 }}>
+              <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(239, 68, 68, 0.06)" }}>
+                <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Your Sharpe</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444", ...mono }}>{alert.holdingSharpe.toFixed(2)}</div>
+              </div>
+              <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(148, 163, 184, 0.04)" }}>
+                <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Sector Avg</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#94a3b8", ...mono }}>{alert.sectorAvgSharpe.toFixed(2)}</div>
+              </div>
+              <div style={{ padding: "10px 14px", borderRadius: 8, background: "rgba(239, 68, 68, 0.06)" }}>
+                <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 4 }}>Gap</div>
+                <div style={{ fontSize: 18, fontWeight: 700, color: "#ef4444", ...mono }}>{alert.gap.toFixed(2)}</div>
+              </div>
+            </div>
+
+            {/* Outperformers */}
+            {alert.outperformers.length > 0 && (
+              <div>
+                <div style={{ fontSize: 13, fontWeight: 600, color: "#e2e8f0", marginBottom: 10 }}>
+                  {alert.outperformers.length} of {alert.totalComparisons} top {alert.sector} stocks outperform this holding:
+                </div>
+                {alert.outperformers.map((comp, ci) => (
+                  <div key={ci} style={{
+                    display: "flex", alignItems: "center", justifyContent: "space-between",
+                    padding: "8px 12px", borderRadius: 8, marginBottom: 4,
+                    background: "rgba(34, 197, 94, 0.04)",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <span style={{ fontWeight: 600, fontSize: 13, ...mono }}>{comp.ticker}</span>
+                      <span style={{ fontSize: 12, color: "#64748b" }}>{comp.name}</span>
+                    </div>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: "#22c55e", ...mono }}>{comp.annualizedSharpe.toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            {/* Underperformers — collapsible */}
+            {alert.underperformers.length > 0 && (
+              <div style={{ marginTop: 12 }}>
+                <button
+                  onClick={() => toggleExpanded(alert.ticker)}
+                  style={{
+                    background: "none", border: "none", color: "#64748b",
+                    cursor: "pointer", padding: "6px 0", fontSize: 13,
+                    fontFamily: "'DM Sans', sans-serif", display: "flex",
+                    alignItems: "center", gap: 6,
+                  }}
+                >
+                  <span style={{
+                    transform: expanded[alert.ticker] ? "rotate(90deg)" : "rotate(0deg)",
+                    transition: "transform 0.2s", display: "inline-block", fontSize: 12,
+                  }}>▸</span>
+                  Show remaining {alert.underperformers.length} stocks with lower Sharpe
+                </button>
+                {expanded[alert.ticker] && (
+                  <div style={{ marginTop: 6 }}>
+                    {alert.underperformers.map((comp, ci) => (
+                      <div key={ci} style={{
+                        display: "flex", alignItems: "center", justifyContent: "space-between",
+                        padding: "8px 12px", borderRadius: 8, marginBottom: 4,
+                        background: "rgba(30, 41, 59, 0.3)",
+                      }}>
+                        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                          <span style={{ fontWeight: 500, fontSize: 13, ...mono, color: "#94a3b8" }}>{comp.ticker}</span>
+                          <span style={{ fontSize: 12, color: "#475569" }}>{comp.name}</span>
+                        </div>
+                        <span style={{ fontSize: 13, color: "#64748b", ...mono }}>{comp.annualizedSharpe.toFixed(2)}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+
+      {/* Skipped tickers */}
+      {skipped && skipped.length > 0 && (
+        <div style={{ marginTop: 12, fontSize: 12, color: "#64748b", lineHeight: 1.7 }}>
+          <strong style={{ color: "#94a3b8" }}>Not compared:</strong>{" "}
+          {skipped.map((s) => `${s.ticker} (${s.reason})`).join(", ")}
+        </div>
+      )}
+    </div>
+  );
+};
+
+// ─── Dashboard ───
 const Dashboard = ({ results, onBack }) => {
   const [showMethodology, setShowMethodology] = useState(false);
   const [showSharpeDetail, setShowSharpeDetail] = useState(false);
+  const [sectorData, setSectorData] = useState(null);
+  const [sectorLoading, setSectorLoading] = useState(true);
   const rating = sharpeRating(results.portfolioSharpeAnnualized);
+
+  // Background fetch sector comparisons after dashboard loads
+  useEffect(() => {
+    let cancelled = false;
+    async function fetchSectors() {
+      try {
+        const res = await fetch("/api/sectors", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            holdings: results.securityMetrics.map((s) => ({
+              ticker: s.ticker,
+              name: s.name,
+              annualizedSharpe: s.annualizedSharpe,
+            })),
+            rfAnnual: results.rfAnnual,
+          }),
+        });
+        const data = await res.json();
+        if (!cancelled) {
+          if (!res.ok) setSectorData({ alerts: [], passing: [], skipped: [], error: true });
+          else setSectorData(data);
+        }
+      } catch {
+        if (!cancelled) setSectorData({ alerts: [], passing: [], skipped: [], error: true });
+      }
+      if (!cancelled) setSectorLoading(false);
+    }
+    fetchSectors();
+    return () => { cancelled = true; };
+  }, [results]);
+
   return (
     <div style={{ maxWidth: 860, margin: "0 auto", padding: "40px 24px" }}>
       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 40 }}><Logo /><button style={{ ...btn(false), padding: "8px 20px", fontSize: "13px" }} onClick={onBack}>← New Analysis</button></div>
 
-      {/* 1. What is Sharpe Ratio - Collapsible */}
+      {/* 1. What is Sharpe Ratio — Collapsible */}
       <div style={{ ...card, marginBottom: 24, borderLeft: "3px solid #6366f1" }}>
         <button onClick={() => setShowSharpeDetail(!showSharpeDetail)} style={{ background: "none", border: "none", color: "#e2e8f0", cursor: "pointer", padding: 0, width: "100%", textAlign: "left", fontFamily: "'DM Sans', sans-serif" }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
@@ -216,17 +441,16 @@ const Dashboard = ({ results, onBack }) => {
         <div style={{ overflowX: "auto" }}>
           <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
             <thead><tr style={{ borderBottom: "1px solid rgba(148, 163, 184, 0.1)" }}>
-              {["Ticker","Name","Weight","Avg Return / wk","Risk (σ) / wk","Sharpe (Ann.)","Rating"].map((h,i)=>(<th key={i} style={{textAlign:i<2?"left":"right",padding:"10px 12px",fontSize:11,fontWeight:600,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>))}
+              {["Ticker","Name","Weight","Avg Return / wk","Risk (σ) / wk","Sharpe (Ann.)"].map((h,i)=>(<th key={i} style={{textAlign:i<2?"left":"right",padding:"10px 12px",fontSize:11,fontWeight:600,color:"#64748b",textTransform:"uppercase",letterSpacing:"0.06em"}}>{h}</th>))}
             </tr></thead>
-            <tbody>{[...results.securityMetrics].sort((a,b)=>b.annualizedSharpe-a.annualizedSharpe).map((sec,i)=>{const r=sharpeRating(sec.annualizedSharpe);return(
+            <tbody>{[...results.securityMetrics].sort((a,b)=>b.annualizedSharpe-a.annualizedSharpe).map((sec,i)=>{return(
               <tr key={i} style={{borderBottom:"1px solid rgba(148, 163, 184, 0.05)"}}>
                 <td style={{padding:"12px",fontWeight:600,...mono}}>{sec.ticker}</td>
                 <td style={{padding:"12px",color:"#94a3b8"}}>{sec.name}</td>
                 <td style={{padding:"12px",textAlign:"right",...mono}}>{(sec.weight*100).toFixed(1)}%</td>
                 <td style={{padding:"12px",textAlign:"right",...mono,color:sec.avgWeeklyReturn>=0?"#22c55e":"#ef4444"}}>{sec.avgWeeklyReturn>=0?"+":""}{sec.avgWeeklyReturn.toFixed(3)}%</td>
                 <td style={{padding:"12px",textAlign:"right",...mono,color:"#f59e0b"}}>{sec.weeklyStdDev.toFixed(3)}%</td>
-                <td style={{padding:"12px",textAlign:"right",...mono,fontWeight:600,color:r.color}}>{sec.annualizedSharpe.toFixed(2)}</td>
-                <td style={{padding:"12px",textAlign:"right"}}><span style={{padding:"3px 10px",borderRadius:100,background:r.bg,color:r.color,fontSize:11,fontWeight:600}}>{r.label}</span></td>
+                <td style={{padding:"12px",textAlign:"right",...mono,fontWeight:600,color:"#e2e8f0"}}>{sec.annualizedSharpe.toFixed(2)}</td>
               </tr>);})}</tbody>
           </table>
         </div>
@@ -238,7 +462,10 @@ const Dashboard = ({ results, onBack }) => {
         </div>
       </div>
 
-      {/* 5. Allocation */}
+      {/* 5. Sector Alerts */}
+      <SectorAlerts sectorData={sectorData} sectorLoading={sectorLoading} />
+
+      {/* 6. Allocation */}
       <div style={{ ...card, marginBottom: 24 }}>
         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, marginTop: 0 }}>Portfolio Allocation</h3>
         {[...results.securityMetrics].sort((a,b)=>b.weight-a.weight).map((sec,i)=>{const colors=["#6366f1","#8b5cf6","#a78bfa","#22c55e","#f59e0b","#ef4444","#3b82f6","#ec4899","#14b8a6","#f97316"];return(
@@ -248,14 +475,14 @@ const Dashboard = ({ results, onBack }) => {
           </div>);})}
       </div>
 
-      {/* 6. Correlation */}
+      {/* 7. Correlation */}
       <div style={{ ...card, marginBottom: 24 }}>
         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, marginTop: 0 }}>Correlation Matrix</h3>
         <p style={{ fontSize: 13, color: "#64748b", marginTop: 0, marginBottom: 20, lineHeight: 1.6 }}>Shows how each pair of holdings moves relative to each other. Red cells (&gt;0.5) = less diversification.</p>
         <Heatmap matrix={results.corrMatrix} tickers={results.tickers} />
       </div>
 
-      {/* 7. Methodology */}
+      {/* 8. Methodology */}
       <div style={{ ...card, marginBottom: 24 }}>
         <button onClick={() => setShowMethodology(!showMethodology)} style={{ background: "none", border: "none", color: "#e2e8f0", fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 0, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
           <span style={{ transform: showMethodology ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▸</span>Methodology & Formulas
@@ -269,6 +496,7 @@ const Dashboard = ({ results, onBack }) => {
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Correlation (ρ)</strong><br /><span style={mono}>ρ(x,y) = Σ(xᵢ−μₓ)(yᵢ−μᵧ) / √[Σ(xᵢ−μₓ)² · Σ(yᵢ−μᵧ)²]</span></div>
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Portfolio Standard Deviation</strong><br /><span style={mono}>σₚ = √(wᵀ · Σ · w)</span> — using covariance matrix</div>
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sharpe Ratio</strong><br /><span style={mono}>Weekly: SR = (μₚ − Rf_weekly) / σₚ</span><br /><span style={mono}>Annualised: SR_annual = SR_weekly × √52</span></div>
+            <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sector Comparison</strong><br />Each holding is compared against the top 10 stocks by market cap in its Yahoo Finance sector. Holdings whose annualised Sharpe falls below the sector average of these 10 stocks are flagged. ETFs are excluded as they span multiple sectors.</div>
           </div>
         )}
       </div>
@@ -278,6 +506,7 @@ const Dashboard = ({ results, onBack }) => {
   );
 };
 
+// ─── Main App ───
 export default function SigmaFrontier() {
   const [screen, setScreen] = useState("landing");
   const [results, setResults] = useState(null);
