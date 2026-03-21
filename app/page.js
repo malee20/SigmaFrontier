@@ -426,6 +426,7 @@ const Dashboard = ({ results, onBack }) => {
         <div style={{ fontSize: 64, fontWeight: 700, ...mono, color: rating.color, lineHeight: 1 }}>{results.portfolioSharpeAnnualized.toFixed(2)}</div>
         <div style={{ display: "inline-block", marginTop: 16, padding: "6px 16px", borderRadius: 100, background: rating.bg, color: rating.color, fontSize: 14, fontWeight: 600 }}>{rating.label}</div>
         <div style={{ fontSize: 13, color: "#64748b", marginTop: 16, lineHeight: 1.7, maxWidth: 520, margin: "16px auto 0" }}>{results.portfolioSharpeAnnualized >= 1 ? "Your portfolio earns a reasonable excess return relative to the risk you're bearing." : "Your portfolio's excess return is low relative to its volatility."}</div>
+        <div style={{ fontSize: 11, color: "#475569", marginTop: 12 }}>Rating benchmarks sourced from <a href="https://corporatefinanceinstitute.com/resources/career-map/sell-side/risk-management/sharpe-ratio-definition-formula/" target="_blank" rel="noopener noreferrer" style={{ color: "#6366f1", textDecoration: "none", borderBottom: "1px solid rgba(99, 102, 241, 0.3)" }}>Corporate Finance Institute</a></div>
       </div>
 
       {/* 3. Dashboard stats */}
