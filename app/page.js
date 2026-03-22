@@ -130,12 +130,15 @@ const Heatmap = ({ matrix, tickers }) => {
     <div style={{ overflowX: "auto" }}>
       <div style={{ display: "inline-block" }}>
         <div style={{ display: "flex", marginLeft: cellSize + 4 }}>
-          {tickers.map((t, i) => (<div key={i} style={{ width: cellSize, textAlign: "center", fontSize: 10, color: hover && (hover.i === i || hover.j === i) ? "#e2e8f0" : "#64748b", ...mono, fontWeight: 500, transform: n > 5 ? "rotate(-45deg)" : "none", transformOrigin: "center bottom", marginBottom: n > 5 ? 16 : 4, transition: "color 0.15s" }}>{t}</div>))}
+          {tickers.map((t, i) => (<div key={i} style={{ width: cellSize, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: hover && (hover.i === i || hover.j === i) ? "#e2e8f0" : "#64748b", ...mono, fontWeight: 500, transform: n > 5 ? "rotate(-45deg)" : "none", transformOrigin: "center bottom", marginBottom: n > 5 ? 16 : 4, transition: "color 0.15s" }}>{t}</div>))}
         </div>
         {matrix.map((row, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center" }}>
             <div style={{ width: cellSize, textAlign: "right", paddingRight: 6, fontSize: 10, ...mono, fontWeight: 500, color: hover && (hover.i === i || hover.j === i) ? "#e2e8f0" : "#64748b", transition: "color 0.15s" }}>{tickers[i]}</div>
-            {row.map((val, j) => { const active = isActive(i, j); const highlighted = isHighlighted(i, j); const isSelf = i === j; return (
+            {row.map((val, j) => {
+              // Only render upper triangle (j >= i)
+              if (j < i) return <div key={j} style={{ width: cellSize - 2, height: cellSize - 2, margin: 1 }} />;
+              const active = isActive(i, j); const highlighted = isHighlighted(i, j); const isSelf = i === j; return (
               <div key={j} onMouseEnter={() => setHover({ i, j, val })} onMouseLeave={() => setHover(null)} style={{ width: cellSize - 2, height: cellSize - 2, margin: 1, borderRadius: 4, background: getCellBg(val, isSelf), display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s", border: active ? "2px solid #e2e8f0" : "2px solid transparent", outline: highlighted && !active ? "1px solid rgba(148, 163, 184, 0.3)" : "none", filter: hover && !highlighted ? "brightness(0.5)" : "brightness(1)", fontSize: cellSize > 40 ? 10 : 8, color: active ? "#fff" : getTextColor(val, isSelf), fontWeight: active ? 700 : 400, ...mono }}>{cellSize > 36 ? val.toFixed(2) : ""}</div>
             ); })}
           </div>
@@ -343,6 +346,195 @@ const SectorAlerts = ({ sectorData, sectorLoading }) => {
   );
 };
 
+// ─── Sector Exposure Pie Chart ───
+const SECTOR_COLORS = {
+  Technology: "#6366f1",
+  "Financial Services": "#3b82f6",
+  Healthcare: "#22c55e",
+  "Consumer Cyclical": "#f59e0b",
+  "Consumer Defensive": "#a78bfa",
+  Industrials: "#64748b",
+  Energy: "#ef4444",
+  Utilities: "#14b8a6",
+  "Real Estate": "#ec4899",
+  "Communication Services": "#8b5cf6",
+  "Basic Materials": "#f97316",
+  "Fixed Income": "#06b6d4",
+  Commodities: "#eab308",
+  International: "#10b981",
+  Other: "#475569",
+};
+
+const SectorExposure = ({ sectorData, sectorLoading }) => {
+  const [hoverSlice, setHoverSlice] = useState(null);
+
+  if (sectorLoading) {
+    return (
+      <div style={{ ...card, marginBottom: 24 }}>
+        <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 12, marginTop: 0 }}>Sector Exposure</h3>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 0" }}>
+          <div style={{
+            width: 20, height: 20, border: "2px solid rgba(99, 102, 241, 0.3)",
+            borderTop: "2px solid #6366f1", borderRadius: "50%",
+            animation: "spin 1s linear infinite",
+          }} />
+          <span style={{ fontSize: 14, color: "#94a3b8" }}>Calculating sector exposure...</span>
+        </div>
+        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+      </div>
+    );
+  }
+
+  if (!sectorData || sectorData.error || !sectorData.exposure || sectorData.exposure.length === 0) {
+    return null;
+  }
+
+  const { exposure, missingSectors, etfBreakdownUsed } = sectorData;
+
+  // Build SVG pie chart
+  const cx = 140, cy = 140, r = 120, innerR = 70;
+  let cumulativeAngle = -Math.PI / 2; // start from top
+  const slices = exposure.map((item, i) => {
+    const angle = (item.percentage / 100) * 2 * Math.PI;
+    const startAngle = cumulativeAngle;
+    const endAngle = cumulativeAngle + angle;
+    cumulativeAngle = endAngle;
+
+    const x1 = cx + r * Math.cos(startAngle);
+    const y1 = cy + r * Math.sin(startAngle);
+    const x2 = cx + r * Math.cos(endAngle);
+    const y2 = cy + r * Math.sin(endAngle);
+    const ix1 = cx + innerR * Math.cos(startAngle);
+    const iy1 = cy + innerR * Math.sin(startAngle);
+    const ix2 = cx + innerR * Math.cos(endAngle);
+    const iy2 = cy + innerR * Math.sin(endAngle);
+    const largeArc = angle > Math.PI ? 1 : 0;
+
+    const path = item.percentage >= 99.9
+      ? `M ${cx},${cy - r} A ${r},${r} 0 1,1 ${cx - 0.01},${cy - r} L ${cx - 0.01},${cy - innerR} A ${innerR},${innerR} 0 1,0 ${cx},${cy - innerR} Z`
+      : `M ${x1},${y1} A ${r},${r} 0 ${largeArc},1 ${x2},${y2} L ${ix2},${iy2} A ${innerR},${innerR} 0 ${largeArc},0 ${ix1},${iy1} Z`;
+
+    const color = SECTOR_COLORS[item.sector] || "#475569";
+
+    return { ...item, path, color, index: i };
+  });
+
+  return (
+    <div style={{ ...card, marginBottom: 24 }}>
+      <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, marginTop: 0 }}>Sector Exposure</h3>
+      <p style={{ fontSize: 13, color: "#64748b", marginTop: 0, marginBottom: 20, lineHeight: 1.6 }}>
+        Breakdown of your portfolio by sector. Hover over the chart to see details.
+      </p>
+
+      <div style={{ display: "flex", gap: 32, flexWrap: "wrap", alignItems: "center", marginBottom: 20 }}>
+        {/* Donut Chart */}
+        <div style={{ position: "relative", flexShrink: 0 }}>
+          <svg width="280" height="280" viewBox="0 0 280 280">
+            {slices.map((slice) => (
+              <path
+                key={slice.index}
+                d={slice.path}
+                fill={slice.color}
+                opacity={hoverSlice === null ? 0.85 : hoverSlice === slice.index ? 1 : 0.35}
+                stroke="rgba(10, 14, 26, 0.8)"
+                strokeWidth="2"
+                style={{ cursor: "pointer", transition: "opacity 0.15s" }}
+                onMouseEnter={() => setHoverSlice(slice.index)}
+                onMouseLeave={() => setHoverSlice(null)}
+              />
+            ))}
+            {/* Dark center background */}
+            <circle cx={cx} cy={cy} r={innerR - 2} fill="rgba(10, 14, 26, 0.85)" />
+            {/* Center label on hover */}
+            {hoverSlice !== null && (
+              <>
+                <text x={cx} y={cy - 10} textAnchor="middle" fill="#e2e8f0"
+                  fontSize="14" fontFamily="DM Sans, sans-serif" fontWeight="600">
+                  {slices[hoverSlice].sector}
+                </text>
+                <text x={cx} y={cy + 18} textAnchor="middle" fill={slices[hoverSlice].color}
+                  fontSize="24" fontFamily="JetBrains Mono, monospace" fontWeight="700">
+                  {slices[hoverSlice].percentage.toFixed(1)}%
+                </text>
+              </>
+            )}
+            {hoverSlice === null && (
+              <text x={cx} y={cy + 5} textAnchor="middle" fill="#64748b"
+                fontSize="13" fontFamily="DM Sans, sans-serif">
+                Hover to explore
+              </text>
+            )}
+          </svg>
+        </div>
+
+        {/* Legend */}
+        <div style={{ flex: 1, minWidth: 200 }}>
+          {slices.map((slice) => (
+            <div
+              key={slice.index}
+              onMouseEnter={() => setHoverSlice(slice.index)}
+              onMouseLeave={() => setHoverSlice(null)}
+              style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "6px 10px", borderRadius: 6, marginBottom: 3,
+                cursor: "pointer", transition: "background 0.15s",
+                background: hoverSlice === slice.index ? "rgba(148, 163, 184, 0.08)" : "transparent",
+              }}
+            >
+              <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                <div style={{
+                  width: 10, height: 10, borderRadius: 2, flexShrink: 0,
+                  background: slice.color,
+                }} />
+                <span style={{ fontSize: 13, color: hoverSlice === slice.index ? "#e2e8f0" : "#94a3b8" }}>
+                  {slice.sector}
+                </span>
+              </div>
+              <span style={{ fontSize: 13, fontWeight: 600, color: hoverSlice === slice.index ? "#e2e8f0" : "#64748b", ...mono }}>
+                {slice.percentage.toFixed(1)}%
+              </span>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {/* Missing sectors checklist */}
+      {missingSectors && missingSectors.length > 0 && (
+        <div style={{
+          padding: "14px 18px", borderRadius: 10, marginBottom: 16,
+          background: "rgba(148, 163, 184, 0.04)", border: "1px solid rgba(148, 163, 184, 0.08)",
+        }}>
+          <div style={{ fontSize: 13, fontWeight: 600, color: "#94a3b8", marginBottom: 10 }}>
+            No exposure to:
+          </div>
+          <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+            {missingSectors.map((sector, i) => (
+              <span key={i} style={{
+                fontSize: 12, padding: "4px 10px", borderRadius: 6,
+                background: "rgba(30, 41, 59, 0.5)", color: "#64748b",
+              }}>
+                {sector}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* ETF breakdown disclaimer */}
+      {etfBreakdownUsed && etfBreakdownUsed.length > 0 && (
+        <div style={{ fontSize: 11, color: "#475569", marginBottom: 8, lineHeight: 1.6 }}>
+          📊 ETFs broken down into estimated sector constituents: {etfBreakdownUsed.join(", ")}. Actual allocations may vary slightly.
+        </div>
+      )}
+
+      {/* General disclaimer */}
+      <div style={{ fontSize: 11, color: "#475569", lineHeight: 1.6 }}>
+        Consider whether heavy exposure to any single sector aligns with your risk tolerance.
+      </div>
+    </div>
+  );
+};
+
 // ─── Dashboard ───
 const Dashboard = ({ results, onBack }) => {
   const [showMethodology, setShowMethodology] = useState(false);
@@ -363,6 +555,7 @@ const Dashboard = ({ results, onBack }) => {
             holdings: results.securityMetrics.map((s) => ({
               ticker: s.ticker,
               name: s.name,
+              amount: s.amount,
               annualizedSharpe: s.annualizedSharpe,
             })),
             rfAnnual: results.rfAnnual,
@@ -370,11 +563,11 @@ const Dashboard = ({ results, onBack }) => {
         });
         const data = await res.json();
         if (!cancelled) {
-          if (!res.ok) setSectorData({ alerts: [], passing: [], skipped: [], error: true });
+          if (!res.ok) setSectorData({ alerts: [], passing: [], skipped: [], exposure: [], missingSectors: [], etfBreakdownUsed: [], error: true });
           else setSectorData(data);
         }
       } catch {
-        if (!cancelled) setSectorData({ alerts: [], passing: [], skipped: [], error: true });
+        if (!cancelled) setSectorData({ alerts: [], passing: [], skipped: [], exposure: [], missingSectors: [], etfBreakdownUsed: [], error: true });
       }
       if (!cancelled) setSectorLoading(false);
     }
@@ -466,7 +659,10 @@ const Dashboard = ({ results, onBack }) => {
       {/* 5. Sector Alerts */}
       <SectorAlerts sectorData={sectorData} sectorLoading={sectorLoading} />
 
-      {/* 6. Allocation */}
+      {/* 6. Sector Exposure */}
+      <SectorExposure sectorData={sectorData} sectorLoading={sectorLoading} />
+
+      {/* 7. Allocation */}
       <div style={{ ...card, marginBottom: 24 }}>
         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, marginTop: 0 }}>Portfolio Allocation</h3>
         {[...results.securityMetrics].sort((a,b)=>b.weight-a.weight).map((sec,i)=>{const colors=["#6366f1","#8b5cf6","#a78bfa","#22c55e","#f59e0b","#ef4444","#3b82f6","#ec4899","#14b8a6","#f97316"];return(
@@ -476,14 +672,14 @@ const Dashboard = ({ results, onBack }) => {
           </div>);})}
       </div>
 
-      {/* 7. Correlation */}
+      {/* 8. Correlation */}
       <div style={{ ...card, marginBottom: 24 }}>
         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, marginTop: 0 }}>Correlation Matrix</h3>
         <p style={{ fontSize: 13, color: "#64748b", marginTop: 0, marginBottom: 20, lineHeight: 1.6 }}>Shows how each pair of holdings moves relative to each other. Red cells (&gt;0.5) = less diversification.</p>
         <Heatmap matrix={results.corrMatrix} tickers={results.tickers} />
       </div>
 
-      {/* 8. Methodology */}
+      {/* 9. Methodology */}
       <div style={{ ...card, marginBottom: 24 }}>
         <button onClick={() => setShowMethodology(!showMethodology)} style={{ background: "none", border: "none", color: "#e2e8f0", fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 0, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
           <span style={{ transform: showMethodology ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▸</span>Methodology & Formulas
@@ -498,6 +694,7 @@ const Dashboard = ({ results, onBack }) => {
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Portfolio Standard Deviation</strong><br /><span style={mono}>σₚ = √(wᵀ · Σ · w)</span> — using covariance matrix</div>
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sharpe Ratio</strong><br /><span style={mono}>Weekly: SR = (μₚ − Rf_weekly) / σₚ</span><br /><span style={mono}>Annualised: SR_annual = SR_weekly × √52</span></div>
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sector Comparison</strong><br />Each holding is compared against the top 10 stocks by market cap in its Yahoo Finance sector. Holdings whose annualised Sharpe falls below the sector average of these 10 stocks are flagged. ETFs are excluded as they span multiple sectors.</div>
+            <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sector Exposure</strong><br />Individual stocks are assigned to their Yahoo Finance sector. ETFs are broken down into approximate sector constituents using published allocation data from the ETF providers. Bond ETFs are categorised as Fixed Income, commodity ETFs as Commodities, and international ETFs as International. The "No exposure to" checklist covers the 11 core equity sectors only.</div>
           </div>
         )}
       </div>
