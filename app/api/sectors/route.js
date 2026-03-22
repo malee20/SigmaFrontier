@@ -1,73 +1,10 @@
-// app/api/sectors/route.js
-// Compares user holdings against top-10 market-cap peers in each sector.
-// Flags holdings whose Sharpe ratio falls below their sector average.
+// app/api/analyse/route.js
+// Fetches real stock data directly from Yahoo Finance's public API.
+// No third-party library needed — just plain HTTP requests.
 
 import { NextResponse } from "next/server";
 
-// ─── Top 10 by market cap per sector (curated) ───
-const SECTOR_TICKERS = {
-  Technology: [
-    "AAPL", "MSFT", "NVDA", "AVGO", "ORCL",
-    "CRM", "AMD", "ADBE", "CSCO", "ACN",
-  ],
-  "Financial Services": [
-    "BRK-B", "JPM", "V", "MA", "BAC",
-    "WFC", "GS", "MS", "AXP", "SPGI",
-  ],
-  Healthcare: [
-    "LLY", "UNH", "JNJ", "ABBV", "MRK",
-    "TMO", "ABT", "DHR", "PFE", "AMGN",
-  ],
-  "Consumer Cyclical": [
-    "AMZN", "TSLA", "HD", "MCD", "NKE",
-    "LOW", "SBUX", "TJX", "BKNG", "CMG",
-  ],
-  "Consumer Defensive": [
-    "WMT", "PG", "COST", "KO", "PEP",
-    "PM", "MDLZ", "CL", "MO", "KHC",
-  ],
-  Industrials: [
-    "GE", "CAT", "UNP", "RTX", "HON",
-    "DE", "BA", "LMT", "UPS", "ADP",
-  ],
-  Energy: [
-    "XOM", "CVX", "COP", "SLB", "EOG",
-    "MPC", "PSX", "VLO", "OXY", "DVN",
-  ],
-  Utilities: [
-    "NEE", "SO", "DUK", "CEG", "SRE",
-    "D", "AEP", "EXC", "XEL", "ED",
-  ],
-  "Real Estate": [
-    "PLD", "AMT", "EQIX", "CCI", "PSA",
-    "SPG", "O", "VICI", "WELL", "DLR",
-  ],
-  "Communication Services": [
-    "META", "GOOGL", "NFLX", "DIS", "CMCSA",
-    "T", "VZ", "TMUS", "CHTR", "EA",
-  ],
-  "Basic Materials": [
-    "LIN", "APD", "SHW", "ECL", "FCX",
-    "NEM", "NUE", "VMC", "MLM", "DOW",
-  ],
-};
-
-// Reverse lookup: ticker → sector
-const TICKER_TO_SECTOR = {};
-for (const [sector, tickers] of Object.entries(SECTOR_TICKERS)) {
-  for (const t of tickers) TICKER_TO_SECTOR[t] = sector;
-}
-
-// Common ETFs — no meaningful single-sector comparison
-const COMMON_ETFS = new Set([
-  "SPY", "QQQ", "VTI", "VOO", "IVV", "BND", "AGG", "GLD", "SLV",
-  "TLT", "IWM", "EEM", "VEA", "VWO", "SCHD", "VIG", "VYM", "DIA",
-  "RSP", "ARKK", "ARKG", "XLF", "XLK", "XLE", "XLV", "XLI", "XLP",
-  "XLY", "XLB", "XLU", "XLRE", "VNQ", "VXUS", "IEMG", "HYG", "LQD",
-  "VCIT", "VCSH", "BSV", "BIV", "EMB", "GOVT", "SHY", "IEF", "TIPS",
-]);
-
-// ─── Financial Math (same formulas as the main analyse route) ───
+// ─── Financial Math ───
 function mean(arr) {
   return arr.reduce((a, b) => a + b, 0) / arr.length;
 }
@@ -79,11 +16,34 @@ function sampleStdDev(arr) {
   return Math.sqrt(variance);
 }
 
-// ─── Fetch 1-year weekly returns for a ticker ───
+function pearsonCorrelation(x, y) {
+  const mx = mean(x),
+    my = mean(y);
+  let num = 0,
+    dx = 0,
+    dy = 0;
+  for (let i = 0; i < x.length; i++) {
+    const a = x[i] - mx,
+      b = y[i] - my;
+    num += a * b;
+    dx += a * a;
+    dy += b * b;
+  }
+  const denom = Math.sqrt(dx) * Math.sqrt(dy);
+  return denom === 0 ? 0 : num / denom;
+}
+
+function sampleCovariance(x, y) {
+  const mx = mean(x),
+    my = mean(y);
+  let sum = 0;
+  for (let i = 0; i < x.length; i++) sum += (x[i] - mx) * (y[i] - my);
+  return sum / (x.length - 1);
+}
+
+// ─── Fetch weekly closing prices from Yahoo Finance public API ───
 async function fetchWeeklyReturns(ticker) {
-  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(
-    ticker
-  )}?range=1y&interval=1wk&includePrePost=false`;
+  const url = `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(ticker)}?range=1y&interval=1wk&includePrePost=false`;
 
   const res = await fetch(url, {
     headers: {
@@ -92,22 +52,26 @@ async function fetchWeeklyReturns(ticker) {
     },
   });
 
-  if (!res.ok) throw new Error(`Failed to fetch ${ticker}`);
+  if (!res.ok) {
+    throw new Error(`Failed to fetch data for ${ticker} (status ${res.status})`);
+  }
 
   const data = await res.json();
   const result = data?.chart?.result?.[0];
-  if (!result) throw new Error(`No data for ${ticker}`);
+
+  if (!result) {
+    throw new Error(`No data found for ticker "${ticker}". Check the symbol.`);
+  }
 
   const closePrices = result.indicators?.quote?.[0]?.close;
   const name =
-    result.meta?.shortName ||
-    result.meta?.longName ||
-    result.meta?.symbol ||
-    ticker;
+    result.meta?.shortName || result.meta?.longName || result.meta?.symbol || ticker;
 
-  if (!closePrices || closePrices.length < 3)
-    throw new Error(`Not enough data for ${ticker}`);
+  if (!closePrices || closePrices.length < 3) {
+    throw new Error(`Not enough price data for ${ticker}`);
+  }
 
+  // Calculate weekly percentage returns from close prices
   const weeklyReturns = [];
   for (let i = 1; i < closePrices.length; i++) {
     const prev = closePrices[i - 1];
@@ -123,154 +87,165 @@ async function fetchWeeklyReturns(ticker) {
     }
   }
 
-  if (weeklyReturns.length < 3)
-    throw new Error(`Not enough returns for ${ticker}`);
+  if (weeklyReturns.length < 3) {
+    throw new Error(`Not enough valid return data for ${ticker}`);
+  }
 
   return { ticker, name, weeklyReturns };
 }
 
-// ─── Detect sector for a ticker not in curated list ───
-async function detectSector(ticker) {
-  // 1. Check curated reverse map (instant, no API call)
-  if (TICKER_TO_SECTOR[ticker]) return TICKER_TO_SECTOR[ticker];
-
-  // 2. Check common ETFs (instant, no API call)
-  if (COMMON_ETFS.has(ticker)) return null;
-
-  // 3. Try Yahoo Finance quoteSummary for sector info
+// ─── Fetch risk-free rate (13-week US Treasury bill yield) ───
+async function fetchRiskFreeRate() {
   try {
-    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(
-      ticker
-    )}?modules=assetProfile`;
+    const url = `https://query1.finance.yahoo.com/v8/finance/chart/%5EIRX?range=5d&interval=1d`;
     const res = await fetch(url, {
       headers: {
         "User-Agent":
           "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
       },
     });
-    if (!res.ok) return null;
     const data = await res.json();
-    const sector =
-      data?.quoteSummary?.result?.[0]?.assetProfile?.sector || null;
-    // Only return sector if we have a curated comparison list for it
-    return sector && SECTOR_TICKERS[sector] ? sector : null;
+    const price = data?.chart?.result?.[0]?.meta?.regularMarketPrice;
+    if (price && price > 0) {
+      return price / 100; // convert from percent to decimal
+    }
+    return 0.042; // fallback
   } catch {
-    return null;
+    return 0.042; // fallback ~4.2%
   }
 }
 
 // ─── API Handler ───
 export async function POST(request) {
   try {
-    const { holdings, rfAnnual } = await request.json();
-    const rfWeekly = (Math.pow(1 + rfAnnual, 1 / 52) - 1) * 100;
+    const body = await request.json();
+    const { holdings } = body;
 
-    // ── Step 1: Detect sector for each holding ──
-    const holdingsWithSector = await Promise.all(
-      holdings.map(async (h) => ({
-        ...h,
-        sector: await detectSector(h.ticker),
-      }))
+    if (!holdings || !Array.isArray(holdings) || holdings.length < 2) {
+      return NextResponse.json(
+        { error: "Please provide at least 2 holdings." },
+        { status: 400 }
+      );
+    }
+
+    for (const h of holdings) {
+      if (!h.ticker || typeof h.amount !== "number" || h.amount <= 0) {
+        return NextResponse.json(
+          { error: `Invalid holding: ${JSON.stringify(h)}` },
+          { status: 400 }
+        );
+      }
+    }
+
+    // Fetch all data in parallel
+    const [riskFreeAnnual, ...tickerData] = await Promise.all([
+      fetchRiskFreeRate(),
+      ...holdings.map((h) => fetchWeeklyReturns(h.ticker.toUpperCase())),
+    ]);
+
+    // Align returns to same length
+    const minLength = Math.min(
+      ...tickerData.map((d) => d.weeklyReturns.length)
+    );
+    const alignedReturns = tickerData.map((d) =>
+      d.weeklyReturns.slice(d.weeklyReturns.length - minLength)
     );
 
-    // ── Step 2: Group holdings by sector ──
-    const bySector = {};
-    const skipped = [];
+    const tickers = tickerData.map((d) => d.ticker);
+    const totalValue = holdings.reduce((s, h) => s + h.amount, 0);
+    const weights = holdings.map((h) => h.amount / totalValue);
+    const n = tickers.length;
 
-    for (const h of holdingsWithSector) {
-      if (!h.sector) {
-        skipped.push({
-          ticker: h.ticker,
-          reason: COMMON_ETFS.has(h.ticker)
-            ? "ETF — spans multiple sectors"
-            : "Sector data unavailable",
-        });
-        continue;
-      }
-      if (!bySector[h.sector]) bySector[h.sector] = [];
-      bySector[h.sector].push(h);
-    }
+    // Weekly risk-free rate
+    const rfWeekly = (Math.pow(1 + riskFreeAnnual, 1 / 52) - 1) * 100;
 
-    // ── Step 3: For each sector, fetch comparison Sharpe ratios ──
-    const alerts = [];
-    const passing = []; // holdings that meet or exceed sector average
+    // Per-security metrics
+    const securityMetrics = tickerData.map((data, i) => {
+      const r = alignedReturns[i];
+      const avg = mean(r);
+      const sd = sampleStdDev(r);
+      const sharpe = sd > 0 ? (avg - rfWeekly) / sd : 0;
+      const annualizedSharpe = sharpe * Math.sqrt(52);
+      return {
+        ticker: data.ticker,
+        name: data.name,
+        amount: holdings[i].amount,
+        weight: weights[i],
+        avgWeeklyReturn: avg,
+        weeklyStdDev: sd,
+        weeklySharpe: sharpe,
+        annualizedSharpe,
+      };
+    });
 
-    for (const [sector, sectorHoldings] of Object.entries(bySector)) {
-      const compTickers = SECTOR_TICKERS[sector];
-      if (!compTickers) continue;
-
-      // Fetch all comparison tickers in parallel
-      const compResults = await Promise.all(
-        compTickers.map(async (t) => {
-          try {
-            const data = await fetchWeeklyReturns(t);
-            const avg = mean(data.weeklyReturns);
-            const sd = sampleStdDev(data.weeklyReturns);
-            const sharpe = sd > 0 ? (avg - rfWeekly) / sd : 0;
-            return {
-              ticker: t,
-              name: data.name,
-              annualizedSharpe: sharpe * Math.sqrt(52),
-            };
-          } catch {
-            return null; // Skip tickers that fail to fetch
-          }
-        })
-      );
-
-      const validComps = compResults.filter(Boolean);
-      if (validComps.length === 0) continue;
-
-      // Sector average Sharpe (from the curated top-10 list)
-      const sectorAvgSharpe =
-        validComps.reduce((s, c) => s + c.annualizedSharpe, 0) /
-        validComps.length;
-
-      // Check each holding against sector average
-      for (const h of sectorHoldings) {
-        // Split comparison tickers into those that beat this holding vs those that don't
-        const outperformers = validComps
-          .filter((c) => c.annualizedSharpe > h.annualizedSharpe)
-          .sort((a, b) => b.annualizedSharpe - a.annualizedSharpe);
-
-        const underperformers = validComps
-          .filter((c) => c.annualizedSharpe <= h.annualizedSharpe)
-          .sort((a, b) => b.annualizedSharpe - a.annualizedSharpe);
-
-        if (h.annualizedSharpe < sectorAvgSharpe) {
-          // ⚠️ Flagged: below sector average
-          alerts.push({
-            ticker: h.ticker,
-            name: h.name,
-            holdingSharpe: h.annualizedSharpe,
-            sector,
-            sectorAvgSharpe,
-            gap: h.annualizedSharpe - sectorAvgSharpe,
-            outperformers,
-            underperformers,
-            totalComparisons: validComps.length,
-          });
-        } else {
-          // ✓ Passing: at or above sector average
-          passing.push({
-            ticker: h.ticker,
-            name: h.name,
-            holdingSharpe: h.annualizedSharpe,
-            sector,
-            sectorAvgSharpe,
-          });
-        }
+    // Correlation matrix
+    const corrMatrix = [];
+    for (let i = 0; i < n; i++) {
+      corrMatrix[i] = [];
+      for (let j = 0; j < n; j++) {
+        corrMatrix[i][j] =
+          i === j ? 1 : pearsonCorrelation(alignedReturns[i], alignedReturns[j]);
       }
     }
 
-    // Sort alerts by gap (worst-performing first)
-    alerts.sort((a, b) => a.gap - b.gap);
+    // Covariance matrix
+    const covMatrix = [];
+    for (let i = 0; i < n; i++) {
+      covMatrix[i] = [];
+      for (let j = 0; j < n; j++) {
+        covMatrix[i][j] = sampleCovariance(alignedReturns[i], alignedReturns[j]);
+      }
+    }
 
-    return NextResponse.json({ alerts, passing, skipped });
+    // Portfolio std dev: sqrt(w^T * Σ * w)
+    let portfolioVariance = 0;
+    for (let i = 0; i < n; i++) {
+      for (let j = 0; j < n; j++) {
+        portfolioVariance += weights[i] * weights[j] * covMatrix[i][j];
+      }
+    }
+    const portfolioStdDev = Math.sqrt(portfolioVariance);
+
+    // Portfolio average weekly return
+    let portfolioAvgReturn = 0;
+    for (let i = 0; i < n; i++)
+      portfolioAvgReturn += weights[i] * mean(alignedReturns[i]);
+
+    // Portfolio Sharpe ratio
+    const portfolioSharpeWeekly =
+      portfolioStdDev > 0
+        ? (portfolioAvgReturn - rfWeekly) / portfolioStdDev
+        : 0;
+    const portfolioSharpeAnnualized = portfolioSharpeWeekly * Math.sqrt(52);
+
+    return NextResponse.json({
+      securityMetrics,
+      corrMatrix,
+      tickers,
+      weights,
+      totalValue,
+      portfolioAvgReturn,
+      portfolioStdDev,
+      portfolioSharpeWeekly,
+      portfolioSharpeAnnualized,
+      rfWeekly,
+      rfAnnual: riskFreeAnnual,
+      dataPoints: minLength,
+    });
   } catch (err) {
-    console.error("Sector analysis error:", err);
+    console.error("Analysis error:", err);
+    const message = err.message || "Something went wrong.";
+
+    if (
+      message.includes("Not enough") ||
+      message.includes("No data found") ||
+      message.includes("Check the symbol")
+    ) {
+      return NextResponse.json({ error: message }, { status: 400 });
+    }
+
     return NextResponse.json(
-      { error: `Sector analysis failed: ${err.message}` },
+      { error: `Analysis failed: ${message}` },
       { status: 500 }
     );
   }
