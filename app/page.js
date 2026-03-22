@@ -535,6 +535,157 @@ const SectorExposure = ({ sectorData, sectorLoading }) => {
   );
 };
 
+// ─── AI Analysis ───
+const AIAnalysis = ({ results, sectorData, sectorLoading }) => {
+  const [analysis, setAnalysis] = useState(null);
+  const [aiLoading, setAiLoading] = useState(false);
+  const [aiError, setAiError] = useState("");
+  const [requested, setRequested] = useState(false);
+
+  const handleAnalyse = async () => {
+    setAiLoading(true);
+    setAiError("");
+    setRequested(true);
+    try {
+      const res = await fetch("/api/ai-analyse", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          portfolioData: results,
+          sectorData: sectorData,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setAiError(data.error || "AI analysis failed.");
+      } else {
+        setAnalysis(data.analysis);
+      }
+    } catch {
+      setAiError("Network error — could not reach AI service.");
+    }
+    setAiLoading(false);
+  };
+
+  // Simple markdown-like bold rendering: **text** → <strong>text</strong>
+  const renderText = (text) => {
+    const parts = text.split(/\*\*(.*?)\*\*/g);
+    return parts.map((part, i) =>
+      i % 2 === 1
+        ? <strong key={i} style={{ color: "#e2e8f0" }}>{part}</strong>
+        : <span key={i}>{part}</span>
+    );
+  };
+
+  return (
+    <div style={{ ...card, marginBottom: 24, borderLeft: "3px solid #8b5cf6" }}>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: analysis ? 16 : 0 }}>
+        <span style={{ fontSize: 22 }}>🤖</span>
+        <div style={{ flex: 1 }}>
+          <h3 style={{ fontSize: 17, fontWeight: 700, margin: "0 0 4px" }}>AI Portfolio Analysis</h3>
+          <p style={{ fontSize: 13, color: "#94a3b8", margin: 0, lineHeight: 1.5 }}>
+            Get a plain-English breakdown of your portfolio's strengths, risks, and areas to explore.
+          </p>
+        </div>
+        {!analysis && !aiLoading && (
+          <button
+            onClick={handleAnalyse}
+            disabled={sectorLoading}
+            style={{
+              padding: "10px 24px", borderRadius: 10, border: "none",
+              background: sectorLoading
+                ? "rgba(139, 92, 246, 0.3)"
+                : "linear-gradient(135deg, #8b5cf6, #6366f1)",
+              color: "#fff", fontSize: 14, fontWeight: 600, cursor: sectorLoading ? "default" : "pointer",
+              fontFamily: "'DM Sans', sans-serif", transition: "all 0.2s",
+              opacity: sectorLoading ? 0.5 : 1,
+              flexShrink: 0,
+            }}
+          >
+            {sectorLoading ? "Waiting for sector data..." : "Analyse"}
+          </button>
+        )}
+      </div>
+
+      {/* Loading state */}
+      {aiLoading && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 0" }}>
+          <div style={{
+            width: 20, height: 20, border: "2px solid rgba(139, 92, 246, 0.3)",
+            borderTop: "2px solid #8b5cf6", borderRadius: "50%",
+            animation: "spin 1s linear infinite",
+          }} />
+          <span style={{ fontSize: 14, color: "#94a3b8" }}>
+            Claude is analysing your portfolio...
+          </span>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+
+      {/* Error state */}
+      {aiError && (
+        <div style={{
+          marginTop: 12, padding: "12px 16px", borderRadius: 10,
+          background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.15)",
+          color: "#fca5a5", fontSize: 14,
+        }}>
+          {aiError}
+          <button
+            onClick={handleAnalyse}
+            style={{
+              marginLeft: 12, padding: "4px 12px", borderRadius: 6, border: "1px solid rgba(239, 68, 68, 0.3)",
+              background: "transparent", color: "#fca5a5", fontSize: 12, cursor: "pointer",
+              fontFamily: "'DM Sans', sans-serif",
+            }}
+          >
+            Retry
+          </button>
+        </div>
+      )}
+
+      {/* Analysis result */}
+      {analysis && (
+        <div>
+          <div style={{
+            padding: "18px 22px", borderRadius: 12,
+            background: "rgba(139, 92, 246, 0.04)", border: "1px solid rgba(139, 92, 246, 0.1)",
+            fontSize: 14, color: "#94a3b8", lineHeight: 1.8,
+          }}>
+            {analysis.split("\n").map((line, i) => {
+              if (line.trim() === "") return <br key={i} />;
+              return <p key={i} style={{ margin: "0 0 8px" }}>{renderText(line)}</p>;
+            })}
+          </div>
+          <div style={{ marginTop: 12, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: 11, color: "#475569", lineHeight: 1.6 }}>
+              Powered by Claude (Anthropic). This is educational analysis, not financial advice.
+            </div>
+            <button
+              onClick={handleAnalyse}
+              style={{
+                padding: "6px 14px", borderRadius: 6,
+                border: "1px solid rgba(148, 163, 184, 0.15)",
+                background: "rgba(30, 41, 59, 0.6)", color: "#94a3b8",
+                fontSize: 12, cursor: "pointer", fontFamily: "'DM Sans', sans-serif",
+                flexShrink: 0,
+              }}
+            >
+              Re-analyse
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Not yet requested — subtle hint */}
+      {!requested && !aiLoading && (
+        <div style={{ fontSize: 11, color: "#475569", marginTop: 8 }}>
+          Uses Claude AI to interpret your portfolio data. Costs nothing. No data is stored.
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Dashboard ───
 const Dashboard = ({ results, onBack }) => {
   const [showMethodology, setShowMethodology] = useState(false);
@@ -662,7 +813,10 @@ const Dashboard = ({ results, onBack }) => {
       {/* 6. Sector Exposure */}
       <SectorExposure sectorData={sectorData} sectorLoading={sectorLoading} />
 
-      {/* 7. Allocation */}
+      {/* 7. AI Analysis */}
+      <AIAnalysis results={results} sectorData={sectorData} sectorLoading={sectorLoading} />
+
+      {/* 8. Allocation */}
       <div style={{ ...card, marginBottom: 24 }}>
         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, marginTop: 0 }}>Portfolio Allocation</h3>
         {[...results.securityMetrics].sort((a,b)=>b.weight-a.weight).map((sec,i)=>{const colors=["#6366f1","#8b5cf6","#a78bfa","#22c55e","#f59e0b","#ef4444","#3b82f6","#ec4899","#14b8a6","#f97316"];return(
@@ -672,14 +826,14 @@ const Dashboard = ({ results, onBack }) => {
           </div>);})}
       </div>
 
-      {/* 8. Correlation */}
+      {/* 9. Correlation */}
       <div style={{ ...card, marginBottom: 24 }}>
         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, marginTop: 0 }}>Correlation Matrix</h3>
         <p style={{ fontSize: 13, color: "#64748b", marginTop: 0, marginBottom: 20, lineHeight: 1.6 }}>Shows how each pair of holdings moves relative to each other. Red cells (&gt;0.5) = less diversification.</p>
         <Heatmap matrix={results.corrMatrix} tickers={results.tickers} />
       </div>
 
-      {/* 9. Methodology */}
+      {/* 10. Methodology */}
       <div style={{ ...card, marginBottom: 24 }}>
         <button onClick={() => setShowMethodology(!showMethodology)} style={{ background: "none", border: "none", color: "#e2e8f0", fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 0, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
           <span style={{ transform: showMethodology ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▸</span>Methodology & Formulas
@@ -695,6 +849,7 @@ const Dashboard = ({ results, onBack }) => {
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sharpe Ratio</strong><br /><span style={mono}>Weekly: SR = (μₚ − Rf_weekly) / σₚ</span><br /><span style={mono}>Annualised: SR_annual = SR_weekly × √52</span></div>
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sector Comparison</strong><br />Each holding is compared against the top 10 stocks by market cap in its Yahoo Finance sector. Holdings whose annualised Sharpe falls below the sector average of these 10 stocks are flagged. ETFs are excluded as they span multiple sectors.</div>
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sector Exposure</strong><br />Individual stocks are assigned to their Yahoo Finance sector. ETFs are broken down into approximate sector constituents using published allocation data from the ETF providers. Bond ETFs are categorised as Fixed Income, commodity ETFs as Commodities, and international ETFs as International. The "No exposure to" checklist covers the 11 core equity sectors only.</div>
+            <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>AI Analysis</strong><br />Uses Claude (by Anthropic) to generate a plain-English interpretation of your portfolio data. All computed metrics (Sharpe ratios, correlations, sector exposure, flags) are sent to the AI as context. No personal data is stored. The AI is instructed not to give buy/sell recommendations — it provides educational analysis only.</div>
           </div>
         )}
       </div>
