@@ -130,14 +130,14 @@ const Heatmap = ({ matrix, tickers }) => {
     <div style={{ overflowX: "auto" }}>
       <div style={{ display: "inline-block" }}>
         <div style={{ display: "flex", marginLeft: cellSize + 4 }}>
-          {tickers.map((t, i) => (<div key={i} style={{ width: cellSize, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 10, color: hover && (hover.i === i || hover.j === i) ? "#e2e8f0" : "#64748b", ...mono, fontWeight: 500, transform: n > 5 ? "rotate(-45deg)" : "none", transformOrigin: "center bottom", marginBottom: n > 5 ? 16 : 4, transition: "color 0.15s" }}>{t}</div>))}
+          {tickers.map((t, i) => (<div key={i} style={{ width: cellSize, display: "flex", alignItems: "center", justifyContent: "center", fontSize: 11, color: hover && (hover.i === i || hover.j === i) ? "#fff" : "#cbd5e1", ...mono, fontWeight: 600, transform: n > 5 ? "rotate(-45deg)" : "none", transformOrigin: "center bottom", marginBottom: n > 5 ? 16 : 4, transition: "color 0.15s" }}>{t}</div>))}
         </div>
         {matrix.map((row, i) => (
           <div key={i} style={{ display: "flex", alignItems: "center" }}>
-            <div style={{ width: cellSize, textAlign: "right", paddingRight: 6, fontSize: 10, ...mono, fontWeight: 500, color: hover && (hover.i === i || hover.j === i) ? "#e2e8f0" : "#64748b", transition: "color 0.15s" }}>{tickers[i]}</div>
+            <div style={{ width: cellSize, textAlign: "right", paddingRight: 6, fontSize: 11, ...mono, fontWeight: 600, color: hover && (hover.i === i || hover.j === i) ? "#fff" : "#cbd5e1", transition: "color 0.15s" }}>{tickers[i]}</div>
             {row.map((val, j) => {
               // Only render upper triangle (j >= i)
-              if (j < i) return <div key={j} style={{ width: cellSize - 2, height: cellSize - 2, margin: 1 }} />;
+              if (j < i) return <div key={j} style={{ width: cellSize - 2, height: cellSize - 2, margin: 1, border: "2px solid transparent" }} />;
               const active = isActive(i, j); const highlighted = isHighlighted(i, j); const isSelf = i === j; return (
               <div key={j} onMouseEnter={() => setHover({ i, j, val })} onMouseLeave={() => setHover(null)} style={{ width: cellSize - 2, height: cellSize - 2, margin: 1, borderRadius: 4, background: getCellBg(val, isSelf), display: "flex", alignItems: "center", justifyContent: "center", cursor: "pointer", transition: "all 0.15s", border: active ? "2px solid #e2e8f0" : "2px solid transparent", outline: highlighted && !active ? "1px solid rgba(148, 163, 184, 0.3)" : "none", filter: hover && !highlighted ? "brightness(0.5)" : "brightness(1)", fontSize: cellSize > 40 ? 10 : 8, color: active ? "#fff" : getTextColor(val, isSelf), fontWeight: active ? 700 : 400, ...mono }}>{cellSize > 36 ? val.toFixed(2) : ""}</div>
             ); })}
