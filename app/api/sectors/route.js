@@ -262,11 +262,12 @@ async function detectSector(ticker) {
   // 2. Check common ETFs (instant, no API call)
   if (COMMON_ETFS.has(ticker)) return null;
 
-  // 3. Try Yahoo Finance quoteSummary for sector info
+  // 3. Check ETF breakdown table (instant, no API call)
+  if (ETF_SECTOR_BREAKDOWNS[ticker]) return null;
+
+  // 4. Use Yahoo Finance search endpoint to detect sector
   try {
-    const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${encodeURIComponent(
-      ticker
-    )}?modules=assetProfile`;
+    const url = `https://query1.finance.yahoo.com/v1/finance/search?q=${encodeURIComponent(ticker)}&quotesCount=1&newsCount=0`;
     const res = await fetch(url, {
       headers: {
         "User-Agent":
@@ -275,9 +276,10 @@ async function detectSector(ticker) {
     });
     if (!res.ok) return null;
     const data = await res.json();
-    const sector =
-      data?.quoteSummary?.result?.[0]?.assetProfile?.sector || null;
-    // Only return sector if we have a curated comparison list for it
+    const quote = data?.quotes?.[0];
+    // Make sure we matched the right ticker
+    if (!quote || quote.symbol !== ticker) return null;
+    const sector = quote.sector || null;
     return sector && SECTOR_TICKERS[sector] ? sector : null;
   } catch {
     return null;
