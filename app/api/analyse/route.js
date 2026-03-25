@@ -218,9 +218,14 @@ export async function POST(request) {
         : 0;
     const portfolioSharpeAnnualized = portfolioSharpeWeekly * Math.sqrt(52);
 
+    // Per-ticker mean returns (needed by optimiser)
+    const tickerMeans = alignedReturns.map((r) => mean(r));
+
     return NextResponse.json({
       securityMetrics,
       corrMatrix,
+      covMatrix,
+      tickerMeans,
       tickers,
       weights,
       totalValue,
