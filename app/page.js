@@ -75,7 +75,7 @@ const Landing = ({ onStart }) => (
 
 // ─── Portfolio Input ───
 const PortfolioInput = ({ onAnalyse, onBack, loading }) => {
-  const [rows, setRows] = useState([{ ticker: "AAPL", amount: "5000" }, { ticker: "OXY", amount: "4000" }, { ticker: "STX", amount: "3000" }, { ticker: "VOO", amount: "2000" }, { ticker: "GLDM", amount: "1000" }]);
+  const [rows, setRows] = useState([{ ticker: "AAPL", amount: "5000" }, { ticker: "OXY", amount: "4000" }, { ticker: "STX", amount: "3000" }, { ticker: "BAC", amount: "2000" }, { ticker: "GLDM", amount: "1000" }]);
   const [error, setError] = useState("");
   const updateRow = (i, field, value) => { const next = [...rows]; next[i] = { ...next[i], [field]: field === "ticker" ? value.toUpperCase() : value }; setRows(next); };
   const addRow = () => setRows([...rows, { ticker: "", amount: "" }]);
