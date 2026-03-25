@@ -75,7 +75,7 @@ const Landing = ({ onStart }) => (
 
 // ─── Portfolio Input ───
 const PortfolioInput = ({ onAnalyse, onBack, loading }) => {
-  const [rows, setRows] = useState([{ ticker: "AAPL", amount: "5000" }, { ticker: "OXY", amount: "4000" }, { ticker: "VOO", amount: "3000" }, { ticker: "STX", amount: "2000" }, { ticker: "BND", amount: "2000" }]);
+  const [rows, setRows] = useState([{ ticker: "", amount: "" }, { ticker: "", amount: "" }]);
   const [error, setError] = useState("");
   const updateRow = (i, field, value) => { const next = [...rows]; next[i] = { ...next[i], [field]: field === "ticker" ? value.toUpperCase() : value }; setRows(next); };
   const addRow = () => setRows([...rows, { ticker: "", amount: "" }]);
@@ -686,6 +686,231 @@ const AIAnalysis = ({ results, sectorData, sectorLoading }) => {
   );
 };
 
+// ─── Portfolio Optimisation ───
+const PortfolioOptimisation = ({ results }) => {
+  const n = results.tickers.length;
+
+  // Dynamic default min based on number of holdings
+  const defaultMin = n <= 5 ? 5 : n <= 10 ? 3 : n <= 20 ? 2 : 1;
+  const defaultMax = 40;
+
+  const [minWeight, setMinWeight] = useState(defaultMin);
+  const [maxWeight, setMaxWeight] = useState(defaultMax);
+  const [optimResult, setOptimResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  // Validate constraints
+  const minTotal = minWeight * n;
+  const maxTotal = maxWeight * n;
+  const feasible = minTotal <= 100 && maxTotal >= 100;
+
+  const handleOptimise = async () => {
+    setLoading(true);
+    setError("");
+    setOptimResult(null);
+    try {
+      const res = await fetch("/api/optimise", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          means: results.tickerMeans,
+          covMatrix: results.covMatrix,
+          rfWeekly: results.rfWeekly,
+          tickers: results.tickers,
+          currentWeights: results.weights,
+          minWeight: minWeight / 100,
+          maxWeight: maxWeight / 100,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error || "Optimisation failed.");
+      } else {
+        setOptimResult(data);
+      }
+    } catch {
+      setError("Network error — could not run optimisation.");
+    }
+    setLoading(false);
+  };
+
+  const sliderTrack = {
+    width: "100%", height: 6, borderRadius: 3,
+    appearance: "none", WebkitAppearance: "none",
+    background: "rgba(148, 163, 184, 0.15)",
+    outline: "none", cursor: "pointer",
+  };
+
+  return (
+    <div style={{ ...card, marginBottom: 24 }}>
+      <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, marginTop: 0 }}>Portfolio Optimisation</h3>
+      <p style={{ fontSize: 13, color: "#64748b", marginTop: 0, marginBottom: 20, lineHeight: 1.6 }}>
+        Find the allocation weights that would have maximised the Sharpe Ratio over the past year, given your current holdings.
+      </p>
+
+      {/* Constraint sliders */}
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20, marginBottom: 20 }}>
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontSize: 13, color: "#94a3b8" }}>Minimum weight per ticker</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#e2e8f0", ...mono }}>{minWeight}%</span>
+          </div>
+          <input
+            type="range" min="1" max="10" value={minWeight}
+            onChange={(e) => setMinWeight(Number(e.target.value))}
+            style={sliderTrack}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 11, color: "#475569" }}>
+            <span>1%</span><span>10%</span>
+          </div>
+        </div>
+        <div>
+          <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
+            <span style={{ fontSize: 13, color: "#94a3b8" }}>Maximum weight per ticker</span>
+            <span style={{ fontSize: 14, fontWeight: 600, color: "#e2e8f0", ...mono }}>{maxWeight}%</span>
+          </div>
+          <input
+            type="range" min="10" max="50" value={maxWeight}
+            onChange={(e) => setMaxWeight(Number(e.target.value))}
+            style={sliderTrack}
+          />
+          <div style={{ display: "flex", justifyContent: "space-between", marginTop: 4, fontSize: 11, color: "#475569" }}>
+            <span>10%</span><span>50%</span>
+          </div>
+        </div>
+      </div>
+
+      {/* Feasibility warning */}
+      {!feasible && (
+        <div style={{
+          padding: "12px 16px", borderRadius: 10, marginBottom: 16,
+          background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.15)",
+          fontSize: 13, color: "#fca5a5",
+        }}>
+          {minTotal > 100
+            ? `Minimum ${minWeight}% × ${n} holdings = ${minTotal}% — exceeds 100%. Lower the minimum.`
+            : `Maximum ${maxWeight}% × ${n} holdings = ${maxTotal}% — below 100%. Raise the maximum.`}
+        </div>
+      )}
+
+      {/* Constraint summary */}
+      {feasible && (
+        <div style={{ fontSize: 12, color: "#64748b", marginBottom: 16 }}>
+          Each ticker will be between {minWeight}% and {maxWeight}% of the portfolio ({n} holdings).
+        </div>
+      )}
+
+      {/* Optimise button */}
+      <button
+        onClick={handleOptimise}
+        disabled={!feasible || loading}
+        style={{
+          padding: "12px 28px", borderRadius: 10, border: "none",
+          background: !feasible ? "rgba(99, 102, 241, 0.2)" : "linear-gradient(135deg, #6366f1, #8b5cf6)",
+          color: "#fff", fontSize: 14, fontWeight: 600,
+          cursor: !feasible || loading ? "default" : "pointer",
+          fontFamily: "'DM Sans', sans-serif",
+          opacity: !feasible ? 0.4 : loading ? 0.7 : 1,
+          transition: "all 0.2s",
+        }}
+      >
+        {loading ? "Optimising..." : "Find Optimal Weights"}
+      </button>
+
+      {/* Loading */}
+      {loading && (
+        <div style={{ display: "flex", alignItems: "center", gap: 12, padding: "16px 0" }}>
+          <div style={{
+            width: 20, height: 20, border: "2px solid rgba(99, 102, 241, 0.3)",
+            borderTop: "2px solid #6366f1", borderRadius: "50%",
+            animation: "spin 1s linear infinite",
+          }} />
+          <span style={{ fontSize: 14, color: "#94a3b8" }}>
+            Running optimisation — testing thousands of weight combinations...
+          </span>
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div style={{
+          marginTop: 12, padding: "12px 16px", borderRadius: 10,
+          background: "rgba(239, 68, 68, 0.08)", border: "1px solid rgba(239, 68, 68, 0.15)",
+          color: "#fca5a5", fontSize: 14,
+        }}>
+          {error}
+        </div>
+      )}
+
+      {/* Results */}
+      {optimResult && (
+        <div style={{ marginTop: 20 }}>
+          {/* Sharpe comparison */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 12, marginBottom: 20 }}>
+            <div style={{ padding: "14px 18px", borderRadius: 10, background: "rgba(148, 163, 184, 0.04)", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Current Sharpe</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "#94a3b8", ...mono }}>{optimResult.currentSharpeAnnual.toFixed(2)}</div>
+            </div>
+            <div style={{ padding: "14px 18px", borderRadius: 10, background: "rgba(99, 102, 241, 0.06)", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Optimised Sharpe</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: "#6366f1", ...mono }}>{optimResult.optimisedSharpeAnnual.toFixed(2)}</div>
+            </div>
+            <div style={{ padding: "14px 18px", borderRadius: 10, background: optimResult.improvement > 0 ? "rgba(34, 197, 94, 0.06)" : "rgba(148, 163, 184, 0.04)", textAlign: "center" }}>
+              <div style={{ fontSize: 11, color: "#64748b", textTransform: "uppercase", letterSpacing: "0.06em", marginBottom: 6 }}>Difference</div>
+              <div style={{ fontSize: 24, fontWeight: 700, color: optimResult.improvement > 0 ? "#22c55e" : "#94a3b8", ...mono }}>
+                {optimResult.improvement >= 0 ? "+" : ""}{optimResult.improvement.toFixed(2)}
+              </div>
+            </div>
+          </div>
+
+          {/* Weight comparison table */}
+          <div style={{ overflowX: "auto" }}>
+            <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
+              <thead>
+                <tr style={{ borderBottom: "1px solid rgba(148, 163, 184, 0.1)" }}>
+                  {["Ticker", "Current Weight", "Optimised Weight"].map((h, i) => (
+                    <th key={i} style={{
+                      textAlign: i === 0 ? "left" : "right", padding: "10px 12px",
+                      fontSize: 11, fontWeight: 600, color: "#64748b",
+                      textTransform: "uppercase", letterSpacing: "0.06em",
+                    }}>{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...optimResult.holdings]
+                  .sort((a, b) => b.optimisedWeight - a.optimisedWeight)
+                  .map((h, i) => (
+                  <tr key={i} style={{ borderBottom: "1px solid rgba(148, 163, 184, 0.05)" }}>
+                    <td style={{ padding: "12px", fontWeight: 600, ...mono }}>{h.ticker}</td>
+                    <td style={{ padding: "12px", textAlign: "right", ...mono, color: "#94a3b8" }}>
+                      {(h.currentWeight * 100).toFixed(1)}%
+                    </td>
+                    <td style={{ padding: "12px", textAlign: "right", ...mono, fontWeight: 600, color: "#e2e8f0" }}>
+                      {(h.optimisedWeight * 100).toFixed(1)}%
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+
+          {/* Disclaimer */}
+          <div style={{
+            marginTop: 16, padding: "14px 18px", borderRadius: 10,
+            background: "rgba(245, 158, 11, 0.06)", border: "1px solid rgba(245, 158, 11, 0.1)",
+            fontSize: 12, color: "#94a3b8", lineHeight: 1.7,
+          }}>
+            <strong style={{ color: "#f59e0b" }}>Important:</strong> These weights are calculated from the past 52 weeks of historical data. They represent what <em>would have been</em> optimal during that period. Markets change, and past optimal allocations may not be optimal going forward. This is not a recommendation to trade.
+          </div>
+        </div>
+      )}
+    </div>
+  );
+};
+
 // ─── Dashboard ───
 const Dashboard = ({ results, onBack }) => {
   const [showMethodology, setShowMethodology] = useState(false);
@@ -816,7 +1041,10 @@ const Dashboard = ({ results, onBack }) => {
       {/* 7. AI Analysis */}
       <AIAnalysis results={results} sectorData={sectorData} sectorLoading={sectorLoading} />
 
-      {/* 8. Allocation */}
+      {/* 8. Portfolio Optimisation */}
+      <PortfolioOptimisation results={results} />
+
+      {/* 9. Allocation */}
       <div style={{ ...card, marginBottom: 24 }}>
         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 20, marginTop: 0 }}>Portfolio Allocation</h3>
         {[...results.securityMetrics].sort((a,b)=>b.weight-a.weight).map((sec,i)=>{const colors=["#6366f1","#8b5cf6","#a78bfa","#22c55e","#f59e0b","#ef4444","#3b82f6","#ec4899","#14b8a6","#f97316"];return(
@@ -826,14 +1054,14 @@ const Dashboard = ({ results, onBack }) => {
           </div>);})}
       </div>
 
-      {/* 9. Correlation */}
+      {/* 10. Correlation */}
       <div style={{ ...card, marginBottom: 24 }}>
         <h3 style={{ fontSize: 18, fontWeight: 700, marginBottom: 6, marginTop: 0 }}>Correlation Matrix</h3>
         <p style={{ fontSize: 13, color: "#64748b", marginTop: 0, marginBottom: 20, lineHeight: 1.6 }}>Shows how each pair of holdings moves relative to each other. Red cells (&gt;0.5) = less diversification.</p>
         <Heatmap matrix={results.corrMatrix} tickers={results.tickers} />
       </div>
 
-      {/* 10. Methodology */}
+      {/* 11. Methodology */}
       <div style={{ ...card, marginBottom: 24 }}>
         <button onClick={() => setShowMethodology(!showMethodology)} style={{ background: "none", border: "none", color: "#e2e8f0", fontSize: 18, fontWeight: 700, cursor: "pointer", padding: 0, fontFamily: "'DM Sans', sans-serif", display: "flex", alignItems: "center", gap: 8, width: "100%" }}>
           <span style={{ transform: showMethodology ? "rotate(90deg)" : "rotate(0deg)", transition: "transform 0.2s", display: "inline-block" }}>▸</span>Methodology & Formulas
@@ -850,6 +1078,7 @@ const Dashboard = ({ results, onBack }) => {
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sector Comparison</strong><br />Each holding is compared against the top 10 stocks by market cap in its Yahoo Finance sector. Holdings whose annualised Sharpe falls below the sector average of these 10 stocks are flagged. ETFs are excluded as they span multiple sectors.</div>
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Sector Exposure</strong><br />Individual stocks are assigned to their Yahoo Finance sector. ETFs are broken down into approximate sector constituents using published allocation data from the ETF providers. Bond ETFs are categorised as Fixed Income, commodity ETFs as Commodities, and international ETFs as International. The "No exposure to" checklist covers the 11 core equity sectors only.</div>
             <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>AI Analysis</strong><br />Uses Claude (by Anthropic) to generate a plain-English interpretation of your portfolio data. All computed metrics (Sharpe ratios, correlations, sector exposure, flags) are sent to the AI as context. No personal data is stored. The AI is instructed not to give buy/sell recommendations — it provides educational analysis only.</div>
+            <div style={{ marginBottom: 18 }}><strong style={{ color: "#e2e8f0" }}>Portfolio Optimisation</strong><br />Uses constrained numerical optimisation (random search with iterative refinement) to find the weight allocation that maximises the portfolio Sharpe Ratio. Constraints: all weights sum to 100%, each ticker between the user-specified minimum and maximum weight. The optimisation uses the same historical weekly returns and covariance matrix computed in the main analysis. Results reflect what would have been optimal over the past 52 weeks — not a prediction of future performance.</div>
           </div>
         )}
       </div>
